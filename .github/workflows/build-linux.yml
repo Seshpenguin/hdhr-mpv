@@ -1,0 +1,56 @@
+name: Build (Linux)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+env:
+  # Build AppImage without needing FUSE on the runner.
+  APPIMAGE_EXTRACT_AND_RUN: 1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            patchelf \
+            build-essential curl wget file \
+            libssl-dev libxdo-dev \
+            clang libclang-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Build app bundles
+        run: npm run tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hdhr-mpv-linux
+          if-no-files-found: warn
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
+            src-tauri/target/release/bundle/appimage/*.AppImage
