@@ -1,6 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
-use std::time::{Duration, Instant};
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -112,40 +110,49 @@ fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-/// Probe the LAN with the native HDHomeRun discovery protocol, then fold in
-/// SiliconDust's cloud lookup and the `hdhomerun.local` mDNS name so a device
-/// is found even when UDP broadcast is filtered. Each responding host is then
-/// described via its `discover.json`.
+/// Discover tuners with libhdhomerun, enriching each with the friendly
+/// name/model/firmware from its `discover.json` (and falling back to the data
+/// libhdhomerun already returned if that HTTP call fails). SiliconDust's cloud
+/// lookup and `hdhomerun.local` are tried only if the broadcast finds nothing.
 pub async fn discover(client: &reqwest::Client) -> Vec<Device> {
-    let mut ips = match tokio::task::spawn_blocking(|| {
-        broadcast_discover(Duration::from_millis(1200))
-    })
-    .await
-    {
-        Ok(Ok(ips)) => ips,
-        _ => Vec::new(),
-    };
-
-    if let Ok(cloud) = cloud_discover(client).await {
-        for ip in cloud {
-            if !ips.contains(&ip) {
-                ips.push(ip);
-            }
-        }
-    }
-    if ips.is_empty() {
-        ips.push("hdhomerun.local".into());
-    }
+    let found = tokio::task::spawn_blocking(crate::libhh::discover)
+        .await
+        .unwrap_or_default();
 
     let mut devices: Vec<Device> = Vec::new();
-    for ip in ips {
-        if let Ok(device) = fetch_discover(client, &ip).await {
-            if !devices.iter().any(|d| d.id == device.id) {
-                devices.push(device);
+    for d in found {
+        let device = fetch_discover(client, &d.ip).await.unwrap_or_else(|_| Device {
+            id: d.device_id.clone(),
+            friendly_name: "HDHomeRun".into(),
+            model: String::new(),
+            firmware: String::new(),
+            ip: d.ip.clone(),
+            base_url: d.base_url.clone(),
+            lineup_url: format!("{}/lineup.json", d.base_url),
+            device_auth: d.device_auth.clone(),
+            tuner_count: d.tuner_count,
+        });
+        push_unique(&mut devices, device);
+    }
+
+    if devices.is_empty() {
+        let mut ips = cloud_discover(client).await.unwrap_or_default();
+        if ips.is_empty() {
+            ips.push("hdhomerun.local".into());
+        }
+        for ip in ips {
+            if let Ok(device) = fetch_discover(client, &ip).await {
+                push_unique(&mut devices, device);
             }
         }
     }
     devices
+}
+
+fn push_unique(devices: &mut Vec<Device>, device: Device) {
+    if !devices.iter().any(|d| d.id == device.id) {
+        devices.push(device);
+    }
 }
 
 pub async fn fetch_discover(client: &reqwest::Client, ip: &str) -> Result<Device, String> {
@@ -247,56 +254,4 @@ async fn cloud_discover(client: &reqwest::Client) -> Result<Vec<String>, String>
         .await
         .map_err(err)?;
     Ok(entries.into_iter().filter_map(|e| e.local_ip).collect())
-}
-
-const DISCOVER_PORT: u16 = 65001;
-const TYPE_DISCOVER_REQ: u16 = 0x0002;
-const TYPE_DISCOVER_RPY: u16 = 0x0003;
-const TAG_DEVICE_TYPE: u8 = 0x01;
-const TAG_DEVICE_ID: u8 = 0x02;
-const DEVICE_TYPE_TUNER: u32 = 0x0000_0001;
-const DEVICE_ID_WILDCARD: u32 = 0xFFFF_FFFF;
-
-fn discover_request() -> Vec<u8> {
-    let mut payload = Vec::with_capacity(12);
-    payload.push(TAG_DEVICE_TYPE);
-    payload.push(4);
-    payload.extend_from_slice(&DEVICE_TYPE_TUNER.to_be_bytes());
-    payload.push(TAG_DEVICE_ID);
-    payload.push(4);
-    payload.extend_from_slice(&DEVICE_ID_WILDCARD.to_be_bytes());
-
-    let mut pkt = Vec::with_capacity(payload.len() + 8);
-    pkt.extend_from_slice(&TYPE_DISCOVER_REQ.to_be_bytes());
-    pkt.extend_from_slice(&(payload.len() as u16).to_be_bytes());
-    pkt.extend_from_slice(&payload);
-    pkt.extend_from_slice(&crc32fast::hash(&pkt).to_le_bytes());
-    pkt
-}
-
-fn broadcast_discover(timeout: Duration) -> std::io::Result<Vec<String>> {
-    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?;
-    socket.set_broadcast(true)?;
-    socket.set_read_timeout(Some(Duration::from_millis(250)))?;
-    socket.send_to(&discover_request(), (Ipv4Addr::BROADCAST, DISCOVER_PORT))?;
-
-    let mut ips = Vec::new();
-    let mut buf = [0u8; 1500];
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
-        match socket.recv_from(&mut buf) {
-            Ok((n, SocketAddr::V4(addr)))
-                if n >= 4 && u16::from_be_bytes([buf[0], buf[1]]) == TYPE_DISCOVER_RPY =>
-            {
-                let ip = addr.ip().to_string();
-                if !ips.contains(&ip) {
-                    ips.push(ip);
-                }
-            }
-            Ok(_) => {}
-            Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
-            Err(e) => return Err(e),
-        }
-    }
-    Ok(ips)
 }

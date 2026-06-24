@@ -17,9 +17,9 @@ A remote-style tab bar (←/→ or keys 1–4) switches between:
 - **Now** — channel rail with now/next, artwork and a hero detail panel.
 - **Guide** — a full EPG grid: time across the top, channels down the side,
   programs as horizontal blocks (past, live and upcoming) with a live time line.
-- **Signal** — per-tuner diagnostics polled live over the HDHomeRun control
-  protocol: signal strength / quality / symbol quality meters, modulation,
-  frequency, bitrate, transport-stream programs and codec.
+- **Signal** — per-tuner diagnostics polled live via libhdhomerun
+  (`hdhomerun_device_get_tuner_status`): signal strength / quality / symbol
+  quality meters, modulation, frequency, bitrate, transport-stream and codec.
 - **Settings** — device info, a channel-scan modal (progress + detected
   stations), and live toggles for every stage of the mpv pipeline.
 
@@ -38,8 +38,9 @@ Selecting a channel launches mpv with:
 
 ## How it works
 
-- **Discovery** — native HDHomeRun UDP broadcast protocol, with SiliconDust
-  cloud lookup and `hdhomerun.local` as fallbacks, plus manual IP entry.
+- **Discovery** — SiliconDust's **libhdhomerun** (vendored as a git submodule,
+  compiled and linked through the `hdhomerun-sys` FFI crate), with the cloud
+  lookup and `hdhomerun.local` as fallbacks, plus manual IP entry.
 - **Lineup** — channels read from the device's `lineup.json`.
 - **Guide** — now/next program data, artwork and synopses from the SiliconDust
   guide API (`DeviceAuth` from `discover.json`).
@@ -87,9 +88,26 @@ src/
     Signal.tsx         live tuner signal meters
     Settings.tsx       device info + scan + mpv toggles
     ScanModal.tsx      channel-scan progress
+hdhomerun-sys/         FFI crate: cc-builds libhdhomerun + bindgen bindings
+  libhdhomerun/        git submodule (SiliconDust, LGPL-2.1)
 src-tauri/src/
   lib.rs               Tauri commands
-  hdhomerun.rs         discovery, lineup, guide, channel scan
-  control.rs           HDHomeRun control protocol (tuner status)
+  hdhomerun.rs         discovery (libhdhomerun) + HTTP lineup, guide, scan
+  libhh.rs             safe wrapper over libhdhomerun (discovery, tuner status)
   mpv.rs               mpv launch
+```
+
+## Credits & licensing
+
+Device discovery and tuner control are powered by SiliconDust's
+[libhdhomerun](https://github.com/Silicondust/libhdhomerun), vendored as a git
+submodule under `hdhomerun-sys/libhdhomerun` and licensed under the **LGPL-2.1**.
+It is compiled from source and linked via the `hdhomerun-sys` crate; because the
+full source is vendored, the result stays relinkable per the LGPL. The channel
+lineup and guide use SiliconDust's HTTP/cloud APIs (not part of the library).
+
+To fetch the submodule after cloning:
+
+```bash
+git submodule update --init --recursive
 ```

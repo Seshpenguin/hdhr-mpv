@@ -1,9 +1,9 @@
-mod control;
 mod hdhomerun;
+mod libhh;
 mod mpv;
 
-use control::TunerStatus;
 use hdhomerun::{Channel, Device, GuideChannel, ScanStatus};
+use libhh::TunerStatus;
 use reqwest::Client;
 use tauri::State;
 
@@ -46,7 +46,7 @@ async fn scan_status(ip: String, http: State<'_, Http>) -> Result<ScanStatus, St
 
 #[tauri::command]
 async fn tuner_status(ip: String, count: u32) -> Result<Vec<TunerStatus>, String> {
-    tokio::task::spawn_blocking(move || control::tuner_status(&ip, count))
+    tokio::task::spawn_blocking(move || libhh::tuner_status(&ip, count))
         .await
         .map_err(|e| e.to_string())?
 }
