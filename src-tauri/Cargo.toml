@@ -1,6 +1,6 @@
 [package]
 name = "hdhr-mpv"
-version = "0.1.0"
+version = "1.1.0"
 description = "HDHR MPV — over-the-air live TV for HDHomeRun, played through mpv"
 authors = ["you"]
 edition = "2021"

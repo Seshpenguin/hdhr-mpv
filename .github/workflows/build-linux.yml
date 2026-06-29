@@ -12,6 +12,8 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,6 +53,18 @@ jobs:
           name: hdhr-mpv-linux
           if-no-files-found: warn
           path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
+            src-tauri/target/release/bundle/appimage/*.AppImage
+
+      # Attach the bundles to the GitHub Release that triggered this run, so they
+      # show up under the release's Assets (workflow artifacts above are only
+      # reachable from the Actions run, not the Releases tab).
+      - name: Attach bundles to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/rpm/*.rpm
             src-tauri/target/release/bundle/appimage/*.AppImage
