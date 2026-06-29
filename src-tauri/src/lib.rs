@@ -58,6 +58,16 @@ fn play_channel(url: String, title: String, args: Vec<String>) -> Result<(), Str
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // WebKitGTK's DMABUF renderer tries to grab an EGL display for accelerated
+    // compositing. On some Linux setups (notably multi-GPU machines) that fails
+    // with "Could not create default EGL display: EGL_BAD_PARAMETER. Aborting..."
+    // and aborts the whole app on launch. Disabling it makes WebKit fall back to
+    // a working path. Left overridable so users on working setups can re-enable.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+
     let http = Client::builder()
         .user_agent("HDHRMPV/0.1")
         .build()
