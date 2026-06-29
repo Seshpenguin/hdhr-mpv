@@ -1471,7 +1471,7 @@ dependencies = [
 
 [[package]]
 name = "hdhr-mpv"
-version = "0.1.0"
+version = "1.1.0"
 dependencies = [
  "hdhomerun-sys",
  "reqwest 0.12.28",
