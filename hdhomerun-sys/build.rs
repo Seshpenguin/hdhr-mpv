@@ -5,8 +5,10 @@ fn main() {
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
 
     // libhdhomerun selects its interface-enumeration backend per OS (see Makefile).
+    // Windows is omitted on purpose: hdhomerun_sock_windows.c enumerates
+    // interfaces itself, and the posix backends (netdevice/getifaddrs) pull in
+    // <sys/ioctl.h>, which MSVC doesn't ship.
     let if_detect = match os.as_str() {
-        "windows" => "netdevice",
         "linux" | "android" => "netlink",
         _ => "getifaddrs",
     };
@@ -33,8 +35,8 @@ fn main() {
     } else {
         srcs.push("hdhomerun_os_posix.c".into());
         srcs.push("hdhomerun_sock_posix.c".into());
+        srcs.push(format!("hdhomerun_sock_{if_detect}.c"));
     }
-    srcs.push(format!("hdhomerun_sock_{if_detect}.c"));
 
     let mut build = cc::Build::new();
     build.include(&lib).warnings(false);
